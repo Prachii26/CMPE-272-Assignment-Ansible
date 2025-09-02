@@ -1,0 +1,92 @@
+---
+# ========= DEPLOY =========
+- name: Deploy webserver on port 8080
+  hosts: web
+  become: true
+  tags: [deploy]
+
+  handlers:
+    - name: reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+  tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+
+    - name: Place site config (listen 8080)
+      ansible.builtin.template:
+        src: templates/nginx_8080.conf.j2
+        dest: /etc/nginx/sites-available/sjsu.conf
+        mode: '0644'
+      notify: reload nginx
+
+    - name: Disable default site if present
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: reload nginx
+
+    - name: Enable our site
+      ansible.builtin.file:
+        src: /etc/nginx/sites-available/sjsu.conf
+        dest: /etc/nginx/sites-enabled/sjsu.conf
+        state: link
+      notify: reload nginx
+
+    - name: Deploy index.html with SJSU id
+      ansible.builtin.template:
+        src: templates/index.html.j2
+        dest: /var/www/html/index.html
+        mode: '0644'
+
+    - name: Ensure Nginx is enabled and running
+      ansible.builtin.service:
+        name: nginx
+        enabled: true
+        state: started
+
+# ========= UN-DEPLOY =========
+- name: Un-deploy webserver and clean resources
+  hosts: web
+  become: true
+  tags: [undeploy]
+
+  tasks:
+    - name: Stop Nginx if running
+      ansible.builtin.service:
+        name: nginx
+        state: stopped
+      ignore_errors: true
+
+    - name: Remove our site symlink
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/sjsu.conf
+        state: absent
+      ignore_errors: true
+
+    - name: Remove our site config
+      ansible.builtin.file:
+        path: /etc/nginx/sites-available/sjsu.conf
+        state: absent
+      ignore_errors: true
+
+    - name: Remove index.html (optional)
+      ansible.builtin.file:
+        path: /var/www/html/index.html
+        state: absent
+      ignore_errors: true
+
+    - name: Remove Nginx package (optional)
+      ansible.builtin.apt:
+        name: nginx
+        state: absent
+      ignore_errors: true
